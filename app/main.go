@@ -42,6 +42,13 @@ func (h *header) setQdCount(count uint16) {
 	copy(h.bytes[4:6], buf)
 }
 
+func (h *header) setAnCount(count uint16) {
+	buf := make([]byte, 2)
+	binary.BigEndian.PutUint16(buf, count)
+
+	copy(h.bytes[6:8], buf)
+}
+
 func encodeDomainName(s string) ([]byte, error) {
 	buf := make([]byte, 0)
 
