@@ -4,6 +4,20 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strings"
+)
+
+const (
+	A     uint16 = 1
+	NS    uint16 = 2
+	CNAME uint16 = 5
+	SOA   uint16 = 6
+	PTR   uint16 = 12
+	MX    uint16 = 15
+)
+
+const (
+	IN uint16 = 1
 )
 
 type header struct {
@@ -19,6 +33,36 @@ func (h *header) setId(id uint16) {
 
 func (h *header) setQr(isReply uint8) {
 	h.bytes[2] = h.bytes[2] | isReply<<7
+}
+
+func (h *header) setQdCount(count uint16) {
+	buf := make([]byte, 2)
+	binary.BigEndian.PutUint16(buf, count)
+
+	copy(h.bytes[4:6], buf)
+}
+
+func encodeDomainName(s string) ([]byte, error) {
+	buf := make([]byte, 0)
+
+	labels := strings.Split(s, ".")
+
+	for _, label := range labels {
+		if len(label) > 63 {
+			return buf, fmt.Errorf("Label %s is greated than the maximum allowed of 63", label)
+		}
+
+		buf = append(buf, byte(len(label)))
+		buf = append(buf, []byte(label)...)
+	}
+
+	buf = append(buf, byte(0))
+
+	if len(buf) > 255 {
+		return buf, fmt.Errorf("Domain name %s is greated than the maximum allowed of 255", s)
+	}
+
+	return buf, nil
 }
 
 func main() {
@@ -47,15 +91,34 @@ func main() {
 		receivedData := string(buf[:size])
 		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
 
+		query := make([]byte, 0)
+
 		header := new(header)
 		header.setId(1234)
 		header.setQr(1)
+		header.setQdCount(1)
 
-		response := make([]byte, 512)
+		domainName, err := encodeDomainName("codecrafters.io")
 
-		copy(response, header.bytes[0:12])
+		recordType := make([]byte, 2)
+		binary.BigEndian.PutUint16(recordType, A)
 
-		_, err = udpConn.WriteToUDP(response, source)
+		class := make([]byte, 2)
+		binary.BigEndian.PutUint16(class, IN)
+
+		if err != nil {
+			fmt.Println("Failed to encode domain name:", err)
+		}
+
+		// header
+		query = append(query, header.bytes[0:12]...)
+
+		// question
+		query = append(query, domainName...)
+		query = append(query, recordType...)
+		query = append(query, class...)
+
+		_, err = udpConn.WriteToUDP(query, source)
 		if err != nil {
 			fmt.Println("Failed to send response:", err)
 		}
