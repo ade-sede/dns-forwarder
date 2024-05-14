@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -72,6 +73,22 @@ func encodeLabelSequence(s string) ([]byte, error) {
 	return buf, nil
 }
 
+func encodeIPV4Address(s string) ([]byte, error) {
+	buf := make([]byte, 4)
+	chunks := strings.Split(s, ".")
+
+	for index, chunk := range chunks {
+		chunkVal, err := strconv.ParseUint(chunk, 10, 8)
+		if err != nil {
+			return nil, err
+		}
+
+		buf[index] = byte(chunkVal)
+	}
+
+	return buf, nil
+}
+
 func main() {
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:2053")
 	if err != nil {
@@ -104,17 +121,18 @@ func main() {
 		header.setId(1234)
 		header.setQr(1)
 		header.setQdCount(1)
+		header.setAnCount(1)
 
 		labelSequence, err := encodeLabelSequence("codecrafters.io")
 
-		recordType := make([]byte, 2)
-		binary.BigEndian.PutUint16(recordType, A)
-
-		class := make([]byte, 2)
-		binary.BigEndian.PutUint16(class, IN)
-
 		if err != nil {
 			fmt.Println("Failed to encode domain name:", err)
+		}
+
+		ip, err := encodeIPV4Address("8.8.8.8")
+
+		if err != nil {
+			fmt.Println("Failed to encode ip address:", err)
 		}
 
 		// header
@@ -122,8 +140,16 @@ func main() {
 
 		// question
 		response = append(response, labelSequence...)
-		response = append(response, recordType...)
-		response = append(response, class...)
+		response = binary.BigEndian.AppendUint16(response, A)
+		response = binary.BigEndian.AppendUint16(response, IN)
+
+		// answer
+		response = append(response, labelSequence...)
+		response = binary.BigEndian.AppendUint16(response, A)
+		response = binary.BigEndian.AppendUint16(response, IN)
+		response = binary.BigEndian.AppendUint32(response, 60) // TTL
+		response = binary.BigEndian.AppendUint16(response, 04) // LEN of data sent back
+		response = append(response, ip...)
 
 		_, err = udpConn.WriteToUDP(response, source)
 		if err != nil {
