@@ -49,7 +49,7 @@ func (h *header) setAnCount(count uint16) {
 	copy(h.bytes[6:8], buf)
 }
 
-func encodeDomainName(s string) ([]byte, error) {
+func encodeLabelSequence(s string) ([]byte, error) {
 	buf := make([]byte, 0)
 
 	labels := strings.Split(s, ".")
@@ -95,17 +95,17 @@ func main() {
 			break
 		}
 
-		receivedData := string(buf[:size])
-		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
+		query := string(buf[:size])
+		fmt.Printf("Received %d bytes from %s: %s\n", size, source, query)
 
-		query := make([]byte, 0)
+		response := make([]byte, 0)
 
 		header := new(header)
 		header.setId(1234)
 		header.setQr(1)
 		header.setQdCount(1)
 
-		domainName, err := encodeDomainName("codecrafters.io")
+		labelSequence, err := encodeLabelSequence("codecrafters.io")
 
 		recordType := make([]byte, 2)
 		binary.BigEndian.PutUint16(recordType, A)
@@ -118,14 +118,14 @@ func main() {
 		}
 
 		// header
-		query = append(query, header.bytes[0:12]...)
+		response = append(response, header.bytes[0:12]...)
 
 		// question
-		query = append(query, domainName...)
-		query = append(query, recordType...)
-		query = append(query, class...)
+		response = append(response, labelSequence...)
+		response = append(response, recordType...)
+		response = append(response, class...)
 
-		_, err = udpConn.WriteToUDP(query, source)
+		_, err = udpConn.WriteToUDP(response, source)
 		if err != nil {
 			fmt.Println("Failed to send response:", err)
 		}
