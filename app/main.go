@@ -21,15 +21,37 @@ const (
 	IN uint16 = 1
 )
 
+type query struct {
+	header   *header
+	question *question
+	answer   *answer
+}
+
+func (q *query) pack() *[]byte {
+	totalLen := len(q.header.bytes) + q.question.len() + q.answer.len()
+
+	buf := make([]byte, 0, totalLen)
+
+	buf = append(buf, q.header.bytes[:]...)
+	buf = append(buf, *q.question.encodedLabelSequence...)
+	buf = append(buf, q.question.recordType[:]...)
+	buf = append(buf, q.question.recordClass[:]...)
+	buf = append(buf, *q.answer.encodedLabelSequence...)
+	buf = append(buf, q.answer.recordType[:]...)
+	buf = append(buf, q.answer.recordClass[:]...)
+	buf = append(buf, q.answer.ttl[:]...)
+	buf = append(buf, q.answer.rdlength[:]...)
+	buf = append(buf, *q.answer.rdata...)
+
+	return &buf
+}
+
 type header struct {
 	bytes [12]byte
 }
 
 func (h *header) setId(id uint16) {
-	buf := make([]byte, 2)
-	binary.BigEndian.PutUint16(buf, id)
-
-	copy(h.bytes[0:2], buf)
+	binary.BigEndian.PutUint16(h.bytes[0:2], id)
 }
 
 func (h *header) setQr(isReply uint8) {
@@ -37,56 +59,98 @@ func (h *header) setQr(isReply uint8) {
 }
 
 func (h *header) setQdCount(count uint16) {
-	buf := make([]byte, 2)
-	binary.BigEndian.PutUint16(buf, count)
-
-	copy(h.bytes[4:6], buf)
+	binary.BigEndian.PutUint16(h.bytes[4:6], count)
 }
 
 func (h *header) setAnCount(count uint16) {
-	buf := make([]byte, 2)
-	binary.BigEndian.PutUint16(buf, count)
-
-	copy(h.bytes[6:8], buf)
+	binary.BigEndian.PutUint16(h.bytes[6:8], count)
 }
 
-func encodeLabelSequence(s string) ([]byte, error) {
-	buf := make([]byte, 0)
+func encodeLabelSequence(s string) (*[]byte, error) {
+	encodedLabelSequence := make([]byte, 0, len(s)+1)
 
 	labels := strings.Split(s, ".")
 
 	for _, label := range labels {
 		if len(label) > 63 {
-			return buf, fmt.Errorf("Label %s is greated than the maximum allowed of 63", label)
+			return nil,
+				fmt.Errorf("Max len of a label is 63. %s is %d", label, len(label))
 		}
 
-		buf = append(buf, byte(len(label)))
-		buf = append(buf, []byte(label)...)
+		encodedLabelSequence = append(encodedLabelSequence, byte(len(label)))
+		encodedLabelSequence = append(encodedLabelSequence, []byte(label)...)
 	}
 
-	buf = append(buf, byte(0))
+	encodedLabelSequence = append(encodedLabelSequence, byte(0))
 
-	if len(buf) > 255 {
-		return buf, fmt.Errorf("Domain name %s is greated than the maximum allowed of 255", s)
+	if len(encodedLabelSequence) > 255 {
+		return nil, fmt.Errorf("Max len of a label seq is 255. %s is %d", s, len(s))
 	}
 
-	return buf, nil
+	return &encodedLabelSequence, nil
 }
 
-func encodeIPV4Address(s string) ([]byte, error) {
+type question struct {
+	encodedLabelSequence *[]byte
+	recordType           [2]byte
+	recordClass          [2]byte
+}
+
+func (q *question) len() int {
+	return len(*q.encodedLabelSequence) + 4
+}
+
+func (q *question) setType(t uint16) {
+	binary.BigEndian.PutUint16(q.recordType[:], t)
+}
+
+func (q *question) setClass(c uint16) {
+	binary.BigEndian.PutUint16(q.recordClass[:], c)
+}
+
+type answer struct {
+	encodedLabelSequence *[]byte
+	recordType           [2]byte
+	recordClass          [2]byte
+	ttl                  [4]byte
+	rdlength             [2]byte
+	rdata                *[]byte
+}
+
+func (a *answer) len() int {
+	return len(*a.encodedLabelSequence) + 10 + len(*a.rdata)
+}
+
+func (a *answer) setType(t uint16) {
+	binary.BigEndian.PutUint16(a.recordType[:], t)
+}
+
+func (a *answer) setClass(c uint16) {
+	binary.BigEndian.PutUint16(a.recordClass[:], c)
+}
+
+func (a *answer) setTTL(ttl uint32) {
+	binary.BigEndian.PutUint32(a.ttl[:], ttl)
+}
+
+func (a *answer) setIPV4data(ip string) error {
 	buf := make([]byte, 4)
-	chunks := strings.Split(s, ".")
+	chunks := strings.Split(ip, ".")
 
 	for index, chunk := range chunks {
 		chunkVal, err := strconv.ParseUint(chunk, 10, 8)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		buf[index] = byte(chunkVal)
 	}
 
-	return buf, nil
+	binary.BigEndian.PutUint16(a.rdlength[:], uint16(len(buf)))
+	a.rdata = &buf
+
+	return nil
+
 }
 
 func main() {
@@ -112,46 +176,45 @@ func main() {
 			break
 		}
 
-		query := string(buf[:size])
-		fmt.Printf("Received %d bytes from %s: %s\n", size, source, query)
-
-		response := make([]byte, 0)
+		incoming := string(buf[:size])
+		fmt.Printf("Received %d bytes from %s: %s\n", size, source, incoming)
 
 		header := new(header)
+		question := new(question)
+		answer := new(answer)
+
+		response := query{
+			header:   header,
+			question: question,
+			answer:   answer,
+		}
+
 		header.setId(1234)
 		header.setQr(1)
-		header.setQdCount(1)
 		header.setAnCount(1)
+		header.setQdCount(1)
 
 		labelSequence, err := encodeLabelSequence("codecrafters.io")
-
 		if err != nil {
-			fmt.Println("Failed to encode domain name:", err)
+			fmt.Println("Failed to encode label sequence:", err)
 		}
 
-		ip, err := encodeIPV4Address("8.8.8.8")
+		question.encodedLabelSequence = labelSequence
+		question.setType(A)
+		question.setClass(IN)
 
+		answer.encodedLabelSequence = labelSequence
+		answer.setType(A)
+		answer.setClass(IN)
+		answer.setTTL(30)
+		err = answer.setIPV4data("8.8.8.8")
 		if err != nil {
-			fmt.Println("Failed to encode ip address:", err)
+			fmt.Println("Failed to encode IPV4 address as rdata:", err)
 		}
 
-		// header
-		response = append(response, header.bytes[0:12]...)
+		packed := response.pack()
 
-		// question
-		response = append(response, labelSequence...)
-		response = binary.BigEndian.AppendUint16(response, A)
-		response = binary.BigEndian.AppendUint16(response, IN)
-
-		// answer
-		response = append(response, labelSequence...)
-		response = binary.BigEndian.AppendUint16(response, A)
-		response = binary.BigEndian.AppendUint16(response, IN)
-		response = binary.BigEndian.AppendUint32(response, 60) // TTL
-		response = binary.BigEndian.AppendUint16(response, 04) // LEN of data sent back
-		response = append(response, ip...)
-
-		_, err = udpConn.WriteToUDP(response, source)
+		_, err = udpConn.WriteToUDP(*packed, source)
 		if err != nil {
 			fmt.Println("Failed to send response:", err)
 		}
