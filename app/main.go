@@ -11,12 +11,7 @@ import (
 
 // TYPES
 const (
-	A     uint16 = 1
-	NS    uint16 = 2
-	CNAME uint16 = 5
-	SOA   uint16 = 6
-	PTR   uint16 = 12
-	MX    uint16 = 15
+	A uint16 = 1
 )
 
 // CLASSES
@@ -57,7 +52,7 @@ func parse(frame *[]byte) (*message, error) {
 
 	encodedLabelSequence := frameWithoutHeader[:labelEnd+1]
 
-	question.encodedLabelSequence = &encodedLabelSequence
+	question.QNAME = &encodedLabelSequence
 
 	message := message{
 		header:   header,
@@ -93,14 +88,12 @@ func createResponseMessage(initialMessage *message) (*message, error) {
 		header.setRCODE(UNIMPLEMENTED)
 	}
 
-	question.encodedLabelSequence = initialMessage.question.encodedLabelSequence
+	question.QNAME = initialMessage.question.QNAME
 	question.setType(A)
 	question.setClass(IN)
 	header.setQDCOUNT(1)
 
-	answer.encodedLabelSequence = initialMessage.question.encodedLabelSequence
-
-	answer.encodedLabelSequence = initialMessage.question.encodedLabelSequence
+	answer.NAME = initialMessage.question.QNAME
 	answer.setType(A)
 	answer.setClass(IN)
 	answer.setTTL(30)
@@ -119,15 +112,15 @@ func (q *message) pack() *[]byte {
 	buf := make([]byte, 0, totalLen)
 
 	buf = append(buf, q.header.bytes[:]...)
-	buf = append(buf, *q.question.encodedLabelSequence...)
-	buf = append(buf, q.question.recordType[:]...)
-	buf = append(buf, q.question.recordClass[:]...)
-	buf = append(buf, *q.answer.encodedLabelSequence...)
-	buf = append(buf, q.answer.recordType[:]...)
-	buf = append(buf, q.answer.recordClass[:]...)
-	buf = append(buf, q.answer.ttl[:]...)
-	buf = append(buf, q.answer.rdlength[:]...)
-	buf = append(buf, *q.answer.rdata...)
+	buf = append(buf, *q.question.QNAME...)
+	buf = append(buf, q.question.QTYPE[:]...)
+	buf = append(buf, q.question.QCLASS[:]...)
+	buf = append(buf, *q.answer.NAME...)
+	buf = append(buf, q.answer.TYPE[:]...)
+	buf = append(buf, q.answer.CLASS[:]...)
+	buf = append(buf, q.answer.TTL[:]...)
+	buf = append(buf, q.answer.RDLENGTH[:]...)
+	buf = append(buf, *q.answer.RDATA...)
 
 	return &buf
 }
@@ -196,7 +189,7 @@ func encodeLabelSequence(s string) (*[]byte, error) {
 	for _, label := range labels {
 		if len(label) > 63 {
 			return nil,
-				fmt.Errorf("Max len of a label is 63. %s is %d", label, len(label))
+				fmt.Errorf("Max len of a label is 63.")
 		}
 
 		encodedLabelSequence = append(encodedLabelSequence, byte(len(label)))
@@ -206,56 +199,58 @@ func encodeLabelSequence(s string) (*[]byte, error) {
 	encodedLabelSequence = append(encodedLabelSequence, byte(0))
 
 	if len(encodedLabelSequence) > 255 {
-		return nil, fmt.Errorf("Max len of a label seq is 255. %s is %d", s, len(s))
+		return nil, fmt.Errorf("Max len of a label seq is 255.")
 	}
 
 	return &encodedLabelSequence, nil
 }
 
 type question struct {
-	encodedLabelSequence *[]byte
-	recordType           [2]byte
-	recordClass          [2]byte
+	QNAME  *[]byte
+	QTYPE  [2]byte
+	QCLASS [2]byte
 }
 
 func (q *question) len() int {
-	return len(*q.encodedLabelSequence) + 4
+	return len(*q.QNAME) + 4
 }
 
 func (q *question) setType(t uint16) {
-	binary.BigEndian.PutUint16(q.recordType[:], t)
+	binary.BigEndian.PutUint16(q.QTYPE[:], t)
 }
 
 func (q *question) setClass(c uint16) {
-	binary.BigEndian.PutUint16(q.recordClass[:], c)
+	binary.BigEndian.PutUint16(q.QCLASS[:], c)
 }
 
-type answer struct {
-	encodedLabelSequence *[]byte
-	recordType           [2]byte
-	recordClass          [2]byte
-	ttl                  [4]byte
-	rdlength             [2]byte
-	rdata                *[]byte
+type RR struct {
+	NAME     *[]byte
+	TYPE     [2]byte
+	CLASS    [2]byte
+	TTL      [4]byte
+	RDLENGTH [2]byte
+	RDATA    *[]byte
 }
 
-func (a *answer) len() int {
-	return len(*a.encodedLabelSequence) + 10 + len(*a.rdata)
+type answer = RR
+
+func (rr *RR) len() int {
+	return len(*rr.NAME) + 10 + len(*rr.RDATA)
 }
 
-func (a *answer) setType(t uint16) {
-	binary.BigEndian.PutUint16(a.recordType[:], t)
+func (rr *RR) setType(t uint16) {
+	binary.BigEndian.PutUint16(rr.TYPE[:], t)
 }
 
-func (a *answer) setClass(c uint16) {
-	binary.BigEndian.PutUint16(a.recordClass[:], c)
+func (rr *RR) setClass(c uint16) {
+	binary.BigEndian.PutUint16(rr.CLASS[:], c)
 }
 
-func (a *answer) setTTL(ttl uint32) {
-	binary.BigEndian.PutUint32(a.ttl[:], ttl)
+func (rr *RR) setTTL(ttl uint32) {
+	binary.BigEndian.PutUint32(rr.TTL[:], ttl)
 }
 
-func (a *answer) setIPV4data(ip string) error {
+func (rr *RR) setIPV4data(ip string) error {
 	buf := make([]byte, 4)
 	chunks := strings.Split(ip, ".")
 
@@ -268,8 +263,8 @@ func (a *answer) setIPV4data(ip string) error {
 		buf[index] = byte(chunkVal)
 	}
 
-	binary.BigEndian.PutUint16(a.rdlength[:], uint16(len(buf)))
-	a.rdata = &buf
+	binary.BigEndian.PutUint16(rr.RDLENGTH[:], uint16(len(buf)))
+	rr.RDATA = &buf
 
 	return nil
 
