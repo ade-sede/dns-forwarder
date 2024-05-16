@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -39,16 +40,28 @@ type message struct {
 
 func parse(frame *[]byte) (*message, error) {
 	header := new(header)
+	question := new(question)
 
-	if len(*frame) < 12 {
-		return nil, fmt.Errorf("no header")
+	copied := copy(header.bytes[:], *frame)
+
+	if copied < 12 {
+		return nil, fmt.Errorf("invalid DNS header")
 	}
 
-	copy(header.bytes[:], *frame)
+	frameWithoutHeader := (*frame)[12:]
+	labelEnd := bytes.IndexByte(frameWithoutHeader, 0)
+
+	if labelEnd == -1 {
+		return nil, fmt.Errorf("no label sequence found")
+	}
+
+	encodedLabelSequence := frameWithoutHeader[:labelEnd+1]
+
+	question.encodedLabelSequence = &encodedLabelSequence
 
 	message := message{
 		header:   header,
-		question: nil,
+		question: question,
 		answer:   nil,
 	}
 
@@ -80,21 +93,18 @@ func createResponseMessage(initialMessage *message) (*message, error) {
 		header.setRCODE(UNIMPLEMENTED)
 	}
 
-	labelSequence, err := encodeLabelSequence("codecrafters.io")
-	if err != nil {
-		return nil, err
-	}
-
-	question.encodedLabelSequence = labelSequence
+	question.encodedLabelSequence = initialMessage.question.encodedLabelSequence
 	question.setType(A)
 	question.setClass(IN)
 	header.setQDCOUNT(1)
 
-	answer.encodedLabelSequence = labelSequence
+	answer.encodedLabelSequence = initialMessage.question.encodedLabelSequence
+
+	answer.encodedLabelSequence = initialMessage.question.encodedLabelSequence
 	answer.setType(A)
 	answer.setClass(IN)
 	answer.setTTL(30)
-	err = answer.setIPV4data("8.8.8.8")
+	err := answer.setIPV4data("8.8.8.8")
 	if err != nil {
 		return nil, err
 	}
@@ -288,6 +298,7 @@ func main() {
 			break
 		}
 
+		// Do not mutate the incoming frame
 		incomingFrame := buf[:size]
 		incomingMessage, err := parse(&incomingFrame)
 		if err != nil {
