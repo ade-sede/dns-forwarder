@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// TYPES
 const (
 	A     uint16 = 1
 	NS    uint16 = 2
@@ -17,17 +18,92 @@ const (
 	MX    uint16 = 15
 )
 
+// CLASSES
 const (
 	IN uint16 = 1
 )
 
-type query struct {
+// OPCODES
+const (
+	QUERY         uint8 = 0
+	IQUERY        uint8 = 1
+	STATUS        uint8 = 2
+	UNIMPLEMENTED uint8 = 4
+)
+
+type message struct {
 	header   *header
 	question *question
 	answer   *answer
 }
 
-func (q *query) pack() *[]byte {
+func parse(frame *[]byte) (*message, error) {
+	header := new(header)
+
+	if len(*frame) < 12 {
+		return nil, fmt.Errorf("no header")
+	}
+
+	copy(header.bytes[:], *frame)
+
+	message := message{
+		header:   header,
+		question: nil,
+		answer:   nil,
+	}
+
+	return &message, nil
+}
+
+func createResponseMessage(initialMessage *message) (*message, error) {
+	header := new(header)
+	question := new(question)
+	answer := new(answer)
+
+	copy(header.bytes[:], initialMessage.header.bytes[:])
+
+	response := message{
+		header:   header,
+		question: question,
+		answer:   answer,
+	}
+
+	header.setQR(1)
+	header.setAA(0)
+	header.setTC(0)
+	header.setRA(0)
+	header.setZ(0)
+
+	if initialMessage.header.OPCODE() == QUERY {
+		header.setRCODE(QUERY)
+	} else {
+		header.setRCODE(UNIMPLEMENTED)
+	}
+
+	labelSequence, err := encodeLabelSequence("codecrafters.io")
+	if err != nil {
+		return nil, err
+	}
+
+	question.encodedLabelSequence = labelSequence
+	question.setType(A)
+	question.setClass(IN)
+	header.setQDCOUNT(1)
+
+	answer.encodedLabelSequence = labelSequence
+	answer.setType(A)
+	answer.setClass(IN)
+	answer.setTTL(30)
+	err = answer.setIPV4data("8.8.8.8")
+	if err != nil {
+		return nil, err
+	}
+	header.setANCOUNT(1)
+
+	return &response, nil
+}
+
+func (q *message) pack() *[]byte {
 	totalLen := len(q.header.bytes) + q.question.len() + q.answer.len()
 
 	buf := make([]byte, 0, totalLen)
@@ -54,15 +130,51 @@ func (h *header) setId(id uint16) {
 	binary.BigEndian.PutUint16(h.bytes[0:2], id)
 }
 
-func (h *header) setQr(isReply uint8) {
+func (h *header) id() uint16 {
+	return binary.BigEndian.Uint16(h.bytes[0:2])
+}
+
+func (h *header) setQR(isReply uint8) {
 	h.bytes[2] = h.bytes[2] | isReply<<7
 }
 
-func (h *header) setQdCount(count uint16) {
+func (h *header) OPCODE() uint8 {
+	return (h.bytes[2] & 0b01111000) >> 3
+}
+
+func (h *header) setAA(isAuthoritativeAnswer uint8) {
+	h.bytes[2] = h.bytes[2] | isAuthoritativeAnswer<<2
+}
+
+func (h *header) setTC(isTruncated uint8) {
+	h.bytes[2] = h.bytes[2] | isTruncated<<1
+}
+
+func (h *header) setRD(recursionDesired uint8) {
+	h.bytes[2] = h.bytes[2] | recursionDesired
+}
+
+func (h *header) RD() uint8 {
+	return h.bytes[2] & 0b00000001
+}
+
+func (h *header) setRA(recursionAvailable uint8) {
+	h.bytes[3] = h.bytes[3] | recursionAvailable<<7
+}
+
+func (h *header) setZ(val uint8) {
+	h.bytes[3] = (h.bytes[3] & 0b10001111) | (val & 0b01110000)
+}
+
+func (h *header) setRCODE(code uint8) {
+	h.bytes[3] = (h.bytes[3] & 0b11110000) | (code & 0b00001111)
+}
+
+func (h *header) setQDCOUNT(count uint16) {
 	binary.BigEndian.PutUint16(h.bytes[4:6], count)
 }
 
-func (h *header) setAnCount(count uint16) {
+func (h *header) setANCOUNT(count uint16) {
 	binary.BigEndian.PutUint16(h.bytes[6:8], count)
 }
 
@@ -176,40 +288,17 @@ func main() {
 			break
 		}
 
-		incoming := string(buf[:size])
-		fmt.Printf("Received %d bytes from %s: %s\n", size, source, incoming)
-
-		header := new(header)
-		question := new(question)
-		answer := new(answer)
-
-		response := query{
-			header:   header,
-			question: question,
-			answer:   answer,
+		incomingFrame := buf[:size]
+		incomingMessage, err := parse(&incomingFrame)
+		if err != nil {
+			fmt.Println("Error parsing the received frame:", err)
+			continue
 		}
 
-		header.setId(1234)
-		header.setQr(1)
-		header.setAnCount(1)
-		header.setQdCount(1)
-
-		labelSequence, err := encodeLabelSequence("codecrafters.io")
+		response, err := createResponseMessage(incomingMessage)
 		if err != nil {
-			fmt.Println("Failed to encode label sequence:", err)
-		}
-
-		question.encodedLabelSequence = labelSequence
-		question.setType(A)
-		question.setClass(IN)
-
-		answer.encodedLabelSequence = labelSequence
-		answer.setType(A)
-		answer.setClass(IN)
-		answer.setTTL(30)
-		err = answer.setIPV4data("8.8.8.8")
-		if err != nil {
-			fmt.Println("Failed to encode IPV4 address as rdata:", err)
+			fmt.Println("Error creating a response message:", err)
+			continue
 		}
 
 		packed := response.pack()
