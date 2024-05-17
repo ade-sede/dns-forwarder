@@ -33,15 +33,16 @@ type message struct {
 	answer   []*answer
 }
 
-func parse(frame *[]byte) (*message, error) {
+func deserialize(frame *[]byte) (*message, error) {
+	// HEADER
 	header := new(header)
-
 	copied := copy(header.bytes[:], *frame)
 
 	if copied < 12 {
 		return nil, fmt.Errorf("invalid DNS header")
 	}
 
+	// QUESTION
 	questions := make([]*question, 0, header.QDCOUNT())
 	questionStart := 12
 
@@ -121,7 +122,7 @@ func createResponseMessage(initialMessage *message) (*message, error) {
 	return &response, nil
 }
 
-func (m *message) pack() *[]byte {
+func (m *message) serialize() *[]byte {
 	totalLen := len(m.header.bytes) + m.questionLen() + m.answerLen()
 
 	buf := make([]byte, 0, totalLen)
@@ -344,7 +345,7 @@ func main() {
 
 		// Do not mutate the incoming frame
 		incomingFrame := buf[:size]
-		incomingMessage, err := parse(&incomingFrame)
+		incomingMessage, err := deserialize(&incomingFrame)
 		if err != nil {
 			fmt.Println("Error parsing the received frame:", err)
 			continue
@@ -356,9 +357,9 @@ func main() {
 			continue
 		}
 
-		packed := response.pack()
+		serialized := response.serialize()
 
-		_, err = udpConn.WriteToUDP(*packed, source)
+		_, err = udpConn.WriteToUDP(*serialized, source)
 		if err != nil {
 			fmt.Println("Failed to send response:", err)
 		}
