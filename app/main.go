@@ -29,13 +29,12 @@ const (
 
 type message struct {
 	header   *header
-	question *question
-	answer   *answer
+	question []*question
+	answer   []*answer
 }
 
 func parse(frame *[]byte) (*message, error) {
 	header := new(header)
-	question := new(question)
 
 	copied := copy(header.bytes[:], *frame)
 
@@ -43,20 +42,26 @@ func parse(frame *[]byte) (*message, error) {
 		return nil, fmt.Errorf("invalid DNS header")
 	}
 
-	frameWithoutHeader := (*frame)[12:]
-	labelEnd := bytes.IndexByte(frameWithoutHeader, 0)
+	questions := make([]*question, 0, header.QDCOUNT())
+	questionStart := 12
 
-	if labelEnd == -1 {
-		return nil, fmt.Errorf("no label sequence found")
+	for range header.QDCOUNT() {
+		labelLen := bytes.IndexByte((*frame)[questionStart:], 0)
+
+		if labelLen == -1 {
+			return nil, fmt.Errorf("no label sequence found")
+		}
+
+		encodedLabelSequence := (*frame)[questionStart : questionStart+labelLen+1]
+
+		question := new(question)
+		question.QNAME = &encodedLabelSequence
+		questions = append(questions, question)
 	}
-
-	encodedLabelSequence := frameWithoutHeader[:labelEnd+1]
-
-	question.QNAME = &encodedLabelSequence
 
 	message := message{
 		header:   header,
-		question: question,
+		question: questions,
 		answer:   nil,
 	}
 
@@ -65,16 +70,11 @@ func parse(frame *[]byte) (*message, error) {
 
 func createResponseMessage(initialMessage *message) (*message, error) {
 	header := new(header)
-	question := new(question)
-	answer := new(answer)
+
+	questions := make([]*question, 0, initialMessage.header.QDCOUNT())
+	answers := make([]*answer, 0, initialMessage.header.QDCOUNT())
 
 	copy(header.bytes[:], initialMessage.header.bytes[:])
-
-	response := message{
-		header:   header,
-		question: question,
-		answer:   answer,
-	}
 
 	header.setQR(1)
 	header.setAA(0)
@@ -88,41 +88,82 @@ func createResponseMessage(initialMessage *message) (*message, error) {
 		header.setRCODE(UNIMPLEMENTED)
 	}
 
-	question.QNAME = initialMessage.question.QNAME
-	question.setType(A)
-	question.setClass(IN)
-	header.setQDCOUNT(1)
+	for i := range initialMessage.header.QDCOUNT() {
+		question := new(question)
+		answer := new(answer)
 
-	answer.NAME = initialMessage.question.QNAME
-	answer.setType(A)
-	answer.setClass(IN)
-	answer.setTTL(30)
-	err := answer.setIPV4data("8.8.8.8")
-	if err != nil {
-		return nil, err
+		question.QNAME = initialMessage.question[i].QNAME
+		question.setType(A)
+		question.setClass(IN)
+
+		answer.NAME = initialMessage.question[i].QNAME
+		answer.setType(A)
+		answer.setClass(IN)
+		answer.setTTL(30)
+		err := answer.setIPV4data("8.8.8.8")
+		if err != nil {
+			return nil, err
+		}
+
+		questions = append(questions, question)
+		answers = append(answers, answer)
 	}
-	header.setANCOUNT(1)
+
+	header.setQDCOUNT(uint16(len(questions)))
+	header.setANCOUNT(uint16(len(answers)))
+
+	response := message{
+		header:   header,
+		question: questions,
+		answer:   answers,
+	}
 
 	return &response, nil
 }
 
-func (q *message) pack() *[]byte {
-	totalLen := len(q.header.bytes) + q.question.len() + q.answer.len()
+func (m *message) pack() *[]byte {
+	totalLen := len(m.header.bytes) + m.questionLen() + m.answerLen()
 
 	buf := make([]byte, 0, totalLen)
 
-	buf = append(buf, q.header.bytes[:]...)
-	buf = append(buf, *q.question.QNAME...)
-	buf = append(buf, q.question.QTYPE[:]...)
-	buf = append(buf, q.question.QCLASS[:]...)
-	buf = append(buf, *q.answer.NAME...)
-	buf = append(buf, q.answer.TYPE[:]...)
-	buf = append(buf, q.answer.CLASS[:]...)
-	buf = append(buf, q.answer.TTL[:]...)
-	buf = append(buf, q.answer.RDLENGTH[:]...)
-	buf = append(buf, *q.answer.RDATA...)
+	buf = append(buf, m.header.bytes[:]...)
+
+	for _, q := range m.question {
+		buf = append(buf, *q.QNAME...)
+		buf = append(buf, q.QTYPE[:]...)
+		buf = append(buf, q.QCLASS[:]...)
+	}
+
+	for _, a := range m.answer {
+		buf = append(buf, *a.NAME...)
+		buf = append(buf, a.TYPE[:]...)
+		buf = append(buf, a.CLASS[:]...)
+		buf = append(buf, a.TTL[:]...)
+		buf = append(buf, a.RDLENGTH[:]...)
+		buf = append(buf, *a.RDATA...)
+	}
 
 	return &buf
+}
+
+func (m *message) questionLen() int {
+	total := 0
+
+	for _, q := range m.question {
+		total += q.len()
+	}
+
+	return total
+}
+
+func (m *message) answerLen() int {
+	total := 0
+
+	for _, a := range m.answer {
+		total += a.len()
+	}
+
+	return total
 }
 
 type header struct {
@@ -177,8 +218,16 @@ func (h *header) setQDCOUNT(count uint16) {
 	binary.BigEndian.PutUint16(h.bytes[4:6], count)
 }
 
+func (h *header) QDCOUNT() uint16 {
+	return binary.BigEndian.Uint16(h.bytes[4:6])
+}
+
 func (h *header) setANCOUNT(count uint16) {
 	binary.BigEndian.PutUint16(h.bytes[6:8], count)
+}
+
+func (h *header) ANCOUNT() uint16 {
+	return binary.BigEndian.Uint16(h.bytes[6:8])
 }
 
 func encodeLabelSequence(s string) (*[]byte, error) {
