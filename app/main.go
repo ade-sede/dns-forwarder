@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"strconv"
+	"net/netip"
 	"strings"
 )
 
@@ -93,6 +93,11 @@ func createResponseMessage(initialMessage *message) (*message, error) {
 		question := new(question)
 		answer := new(answer)
 
+		ip, err := netip.ParseAddr("8.8.8.8")
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse IP address")
+		}
+
 		question.QNAME = initialMessage.question[i].QNAME
 		question.setType(A)
 		question.setClass(IN)
@@ -101,10 +106,7 @@ func createResponseMessage(initialMessage *message) (*message, error) {
 		answer.setType(A)
 		answer.setClass(IN)
 		answer.setTTL(30)
-		err := answer.setIPV4data("8.8.8.8")
-		if err != nil {
-			return nil, err
-		}
+		answer.setData(ip.AsSlice())
 
 		questions = append(questions, question)
 		answers = append(answers, answer)
@@ -300,25 +302,13 @@ func (rr *RR) setTTL(ttl uint32) {
 	binary.BigEndian.PutUint32(rr.TTL[:], ttl)
 }
 
-func (rr *RR) setIPV4data(ip string) error {
-	buf := make([]byte, 4)
-	chunks := strings.Split(ip, ".")
-
-	for index, chunk := range chunks {
-		chunkVal, err := strconv.ParseUint(chunk, 10, 8)
-		if err != nil {
-			return err
-		}
-
-		buf[index] = byte(chunkVal)
-	}
-
-	binary.BigEndian.PutUint16(rr.RDLENGTH[:], uint16(len(buf)))
-	rr.RDATA = buf
-
-	return nil
-
+func (rr *RR) setData(data []byte) {
+	binary.BigEndian.PutUint16(rr.RDLENGTH[:], uint16(len(data)))
+	rr.RDATA = data
 }
+
+
+
 
 func main() {
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:2053")
