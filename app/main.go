@@ -33,10 +33,10 @@ type message struct {
 	answer   []*answer
 }
 
-func deserialize(frame *[]byte) (*message, error) {
+func deserialize(frame []byte) (*message, error) {
 	// HEADER
 	header := new(header)
-	copied := copy(header.bytes[:], *frame)
+	copied := copy(header.bytes[:], frame)
 
 	if copied < 12 {
 		return nil, fmt.Errorf("invalid DNS header")
@@ -47,16 +47,16 @@ func deserialize(frame *[]byte) (*message, error) {
 	questionStart := 12
 
 	for range header.QDCOUNT() {
-		labelLen := bytes.IndexByte((*frame)[questionStart:], 0)
+		labelLen := bytes.IndexByte(frame[questionStart:], 0)
 
 		if labelLen == -1 {
 			return nil, fmt.Errorf("no label sequence found")
 		}
 
-		encodedLabelSequence := (*frame)[questionStart : questionStart+labelLen+1]
+		encodedLabelSequence := frame[questionStart : questionStart+labelLen+1]
 
 		question := new(question)
-		question.QNAME = &encodedLabelSequence
+		question.QNAME = encodedLabelSequence
 		questions = append(questions, question)
 	}
 
@@ -122,7 +122,7 @@ func createResponseMessage(initialMessage *message) (*message, error) {
 	return &response, nil
 }
 
-func (m *message) serialize() *[]byte {
+func (m *message) serialize() []byte {
 	totalLen := len(m.header.bytes) + m.questionLen() + m.answerLen()
 
 	buf := make([]byte, 0, totalLen)
@@ -130,21 +130,21 @@ func (m *message) serialize() *[]byte {
 	buf = append(buf, m.header.bytes[:]...)
 
 	for _, q := range m.question {
-		buf = append(buf, *q.QNAME...)
+		buf = append(buf, q.QNAME...)
 		buf = append(buf, q.QTYPE[:]...)
 		buf = append(buf, q.QCLASS[:]...)
 	}
 
 	for _, a := range m.answer {
-		buf = append(buf, *a.NAME...)
+		buf = append(buf, a.NAME...)
 		buf = append(buf, a.TYPE[:]...)
 		buf = append(buf, a.CLASS[:]...)
 		buf = append(buf, a.TTL[:]...)
 		buf = append(buf, a.RDLENGTH[:]...)
-		buf = append(buf, *a.RDATA...)
+		buf = append(buf, a.RDATA...)
 	}
 
-	return &buf
+	return buf
 }
 
 func (m *message) questionLen() int {
@@ -231,7 +231,7 @@ func (h *header) ANCOUNT() uint16 {
 	return binary.BigEndian.Uint16(h.bytes[6:8])
 }
 
-func encodeLabelSequence(s string) (*[]byte, error) {
+func encodeLabelSequence(s string) ([]byte, error) {
 	encodedLabelSequence := make([]byte, 0, len(s)+1)
 
 	labels := strings.Split(s, ".")
@@ -252,17 +252,17 @@ func encodeLabelSequence(s string) (*[]byte, error) {
 		return nil, fmt.Errorf("Max len of a label seq is 255.")
 	}
 
-	return &encodedLabelSequence, nil
+	return encodedLabelSequence, nil
 }
 
 type question struct {
-	QNAME  *[]byte
+	QNAME  []byte
 	QTYPE  [2]byte
 	QCLASS [2]byte
 }
 
 func (q *question) len() int {
-	return len(*q.QNAME) + 4
+	return len(q.QNAME) + 4
 }
 
 func (q *question) setType(t uint16) {
@@ -274,18 +274,18 @@ func (q *question) setClass(c uint16) {
 }
 
 type RR struct {
-	NAME     *[]byte
+	NAME     []byte
 	TYPE     [2]byte
 	CLASS    [2]byte
 	TTL      [4]byte
 	RDLENGTH [2]byte
-	RDATA    *[]byte
+	RDATA    []byte
 }
 
 type answer = RR
 
 func (rr *RR) len() int {
-	return len(*rr.NAME) + 10 + len(*rr.RDATA)
+	return len(rr.NAME) + 10 + len(rr.RDATA)
 }
 
 func (rr *RR) setType(t uint16) {
@@ -314,7 +314,7 @@ func (rr *RR) setIPV4data(ip string) error {
 	}
 
 	binary.BigEndian.PutUint16(rr.RDLENGTH[:], uint16(len(buf)))
-	rr.RDATA = &buf
+	rr.RDATA = buf
 
 	return nil
 
@@ -345,7 +345,7 @@ func main() {
 
 		// Do not mutate the incoming frame
 		incomingFrame := buf[:size]
-		incomingMessage, err := deserialize(&incomingFrame)
+		incomingMessage, err := deserialize(incomingFrame)
 		if err != nil {
 			fmt.Println("Error parsing the received frame:", err)
 			continue
