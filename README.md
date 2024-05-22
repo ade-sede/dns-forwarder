@@ -1,37 +1,60 @@
-[![progress-banner](https://backend.codecrafters.io/progress/dns-server/69c46c13-3c28-4831-bb7a-6bb764973b74)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+Always wondered how DNS _actually_ works under the hood.
+Now, I know.
 
-This is a starting point for Go solutions to the
-["Build Your Own DNS server" Challenge](https://app.codecrafters.io/courses/dns-server/overview).
+This is based on codecrafters.io's ["Build Your Own DNS server" Challenge](https://app.codecrafters.io/courses/dns-server/overview).
 
-In this challenge, you'll build a DNS server that's capable of parsing and
-creating DNS packets, responding to DNS queries, handling various record types
-and doing recursive resolve. Along the way we'll learn about the DNS protocol,
-DNS packet format, root servers, authoritative servers, forwarding servers,
-various record types (A, AAAA, CNAME, etc) and more.
+> In this challenge, you'll build a DNS server that's capable of parsing and
+> creating DNS packets, responding to DNS queries, handling various record types
+> and doing recursive resolve. Along the way we'll learn about the DNS protocol,
+> DNS packet format, root servers, authoritative servers, forwarding servers,
+> various record types (A, AAAA, CNAME, etc) and more.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+# Scope
 
-# Passing the first stage
+Don't expect it to work for anything beyond the simplest A record queries.  
+This project is just an excuse to dive into ["RFC 1035"](https://tools.ietf.org/html/rfc1035) & ["RFC 1034"](https://tools.ietf.org/html/rfc1034) to learn about DNS.
 
-The entry point for your `your_server.sh` implementation is in `app/main.go`.
-Study and uncomment the relevant code, and push your changes to pass the first
-stage:
+# Running the project
 
-```sh
-git add .
-git commit -m "pass 1st stage" # any msg
-git push origin master
 ```
+# Run the server
+$> ./your_server.sh --resolver 8.8.8.8
 
-Time to move on to the next stage!
+# Query the server
+$> dig @127.0.0.1 -p 2053 +noedns codecrafters.io google.io
 
-# Stage 2 & beyond
+; <<>> DiG 9.18.18-0ubuntu0.22.04.2-Ubuntu <<>> @127.0.0.1 -p 2053 +noedns codecrafters.io google.io
+; (1 server found)
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 23402
+;; flags: qr rd; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+;; WARNING: recursion requested but not available
 
-Note: This section is for stages 2 and beyond.
+;; QUESTION SECTION:
+;codecrafters.io.               IN      A
 
-1. Ensure you have `go (1.19)` installed locally
-1. Run `./your_server.sh` to run your program, which is implemented in
-   `app/main.go`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+;; ANSWER SECTION:
+codecrafters.io.        224     IN      A       76.76.21.21
+
+;; Query time: 39 msec
+;; SERVER: 127.0.0.1#2053(127.0.0.1) (UDP)
+;; WHEN: Wed May 22 03:39:28 CEST 2024
+;; MSG SIZE  rcvd: 64
+
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 41334
+;; flags: qr rd; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+;; WARNING: recursion requested but not available
+
+;; QUESTION SECTION:
+;google.io.                     IN      A
+
+;; ANSWER SECTION:
+google.io.              300     IN      A       216.58.215.36
+
+;; Query time: 23 msec
+;; SERVER: 127.0.0.1#2053(127.0.0.1) (UDP)
+;; WHEN: Wed May 22 03:39:28 CEST 2024
+;; MSG SIZE  rcvd: 52
+```
