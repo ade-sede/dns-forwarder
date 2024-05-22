@@ -31,6 +31,7 @@ const (
 	UNIMPLEMENTED uint8 = 4
 )
 
+// See QNAME & NAME definitions in RFC-1035 - 4.1.2 as well as 2.3.1
 func encodeLabelSequence(labels []string) ([]byte, error) {
 	encodedLabelSequence := make([]byte, 0)
 
@@ -75,6 +76,7 @@ func extractUint32(src []byte, offset *int) ([4]byte, uint32) {
 	return result, binary.BigEndian.Uint32(result[:])
 }
 
+// RFC-1035 - 4.1 - Message Format
 type message struct {
 	cache *labelCache
 
@@ -88,17 +90,13 @@ type message struct {
 	additional []*RR
 }
 
-// RFC-1035 4.1.4. Message compression breaks down the compression scheme
+// RFC-1035 4.1.4. Message compression
 // The architecture I have chosen makes it hard to implement compression properly.
 // Normally, it is a simple pointer to a previous label in the frame.
-// But as I have chosen to use a higher level object and not simply represent
-// everything as a frame, we need to keep track of what label was found where
-// in a different structure. This makes everything more complicated than it
-// needs to be, but I don't really want to redesign the whole project.
+// Paying the price for my early design decisions... Never abstract too early.
 // There are two major drawbacks:
 // 1. We cannot easily compress messages
 // 2. We cannot follow recursive pointers (rare as they may be)
-// Paying the price for my early design decisions... Never abstract too early
 type labelCache struct {
 	// Map label to position
 	labelMap map[string]int
@@ -408,6 +406,7 @@ func (m *message) answerLen() int {
 	return total
 }
 
+// RFC 1035 - 4.1.1 - Header section format
 type header struct {
 	bytes [12]byte
 }
@@ -472,6 +471,7 @@ func (h *header) ANCOUNT() uint16 {
 	return binary.BigEndian.Uint16(h.bytes[6:8])
 }
 
+// RFC 1035 - 4.1.2 - Question section format
 type question struct {
 	QNAME  []string
 	QTYPE  [2]byte
@@ -490,6 +490,7 @@ func (q *question) setClass(c uint16) {
 	binary.BigEndian.PutUint16(q.QCLASS[:], c)
 }
 
+// RFC 1035 - 4.1.3 - RR format
 type RR struct {
 	NAME     []string
 	TYPE     [2]byte
