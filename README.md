@@ -66,3 +66,4 @@ google.io.              300     IN      A       216.58.215.36
 - Support for `TR` (Truncated) flag
 - Support for forwarding without `RD` (Recursion Desired) flag
 - Local Cache
+- Some error wrapping to make the whole error handling more coherent

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
 	"math/rand/v2"
 	"net"
@@ -58,6 +59,8 @@ func encodeLabelSequence(labels []string) ([]byte, error) {
 	return encodedLabelSequence, nil
 }
 
+// TODO replace by making use of bufio.reader
+// no nead to maintain our own head / offset
 func extractBytes(src []byte, offset *int, length int) []byte {
 	result := src[*offset : *offset+length]
 	*offset += length
@@ -84,8 +87,7 @@ type message struct {
 	header   *header
 	question []*question
 	answer   []*answer
-	// unusupported by this server
-	authority []*RR
+	// unusupported by this server authority []*RR
 	// unusupported by this server
 	additional []*RR
 }
@@ -109,8 +111,9 @@ type labelCache struct {
 // For example, consider the following situation
 // - `google` label starts at byte 12
 // - `com` label starts at byte 19
-// If later we encounter a reference to `google.com` at byte 12
-// we need to include `google` and `com` in the label sequence.
+// If later we encounter a reference to byte 12
+// we need to include fetch the entire label sequence that started at byte 12,
+// which is label `google` followed by label `com`
 func (c *labelCache) allSubsequentLabels(head int) []string {
 	labels := make([]string, 0)
 
@@ -549,6 +552,8 @@ func parseResolverAddress(addr string) (string, error) {
 }
 
 func main() {
+	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+
 	var resolverConn *net.UDPConn
 
 	if len(os.Args) == 3 && os.Args[1] == "--resolver" {
@@ -590,7 +595,7 @@ func main() {
 	for {
 		size, source, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
-			fmt.Println("Error receiving data:", err)
+			errorLogger.Println(fmt.Errorf("Error receiving data: err = %w", err))
 			break
 		}
 
@@ -598,7 +603,7 @@ func main() {
 		incomingFrame := buf[:size]
 		incomingMessage, err := deserialize(incomingFrame)
 		if err != nil {
-			fmt.Println("Error parsing the received frame:", err)
+			errorLogger.Println(fmt.Errorf("Error parsing the received frame: err = %w", err))
 			continue
 		}
 
@@ -608,7 +613,8 @@ func main() {
 			answers, err := forwardResolve(response.question, resolverConn)
 
 			if err != nil {
-				fmt.Println("Error forwarding the request:", err)
+				errorLogger.Println(fmt.Errorf("Error forwarding the request: err = %w", err))
+
 				continue
 			}
 
@@ -617,20 +623,20 @@ func main() {
 		} else {
 			err = response.addStaticAnswer()
 			if err != nil {
-				fmt.Println("Error while creating answer:", err)
+				errorLogger.Println(fmt.Errorf("Error while creating answer: err = %w", err))
 				continue
 			}
 		}
 
 		serialized, err := response.serialize()
 		if err != nil {
-			fmt.Println("Error serializing the message:", err)
+			errorLogger.Println(fmt.Errorf("Error serializing the message: err = %w", err))
 			continue
 		}
 
 		_, err = udpConn.WriteToUDP(serialized, source)
 		if err != nil {
-			fmt.Println("Failed to send response:", err)
+			errorLogger.Println(fmt.Errorf("Failed to send response: err = %w", err))
 			continue
 		}
 
