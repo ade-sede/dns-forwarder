@@ -11,7 +11,9 @@ This is based on codecrafters.io's ["Build Your Own DNS server" Challenge](https
 
 # Scope
 
-Don't expect it to work for anything beyond the simplest A record queries.  
+- A record queries
+- DNS forwarding
+
 This project is just an excuse to dive into ["RFC 1035"](https://tools.ietf.org/html/rfc1035) & ["RFC 1034"](https://tools.ietf.org/html/rfc1034) to learn about DNS.
 
 # Running the project
@@ -58,3 +60,9 @@ google.io.              300     IN      A       216.58.215.36
 ;; WHEN: Wed May 22 03:39:28 CEST 2024
 ;; MSG SIZE  rcvd: 52
 ```
+
+# TODO
+
+- Support for `TR` (Truncated) flag
+- Support for forwarding without `RD` (Recursion Desired) flag
+- Local Cache
